@@ -28,13 +28,19 @@ WHAT the answer is** (arithmetic). We show, on a multi-file numeric-join task:
    8/8), and the residual weak point — the declaration step — fails only by
    *silently resolving genuine ambiguity*, fixed by making the interpretation
    explicit (ambiguity flagged 1/1, precise cases unharmed).
+6. The approach **extends past enumerable sets** to *predicate*-defined
+   requirements ("sum sales > 5000"): coverage needs a deletion-proof invariant
+   (count/contiguity, not sorting), the invariant choice can be delegated to the
+   LLM and validated deterministically (5/5), and a third verdict **UNDECIDABLE**
+   handles predicates not evaluable from the data. Throughout, the system errs
+   **only toward refusal, never toward false-certification** (§10).
 
 The throughline: **every deterministic sub-task (arithmetic, completeness checking,
-boundary interpretation) is done better, cheaper, more model-independently, and
-more reliably outside the LLM.** The LLM shrinks to its irreducible, *checkable*
-role — translating natural-language intent into executable structure, and writing a
-parser for an unseen format. The open frontier is requirements defined by a
-*predicate* rather than an enumerable set (§10).
+boundary interpretation, the coverage proof itself) is done better, cheaper, more
+model-independently, and more reliably outside the LLM.** The LLM shrinks to its
+irreducible, *checkable* role — translating natural-language intent into a structure
+the CPU can verify. And the safety property is asymmetric by construction: honest
+refusal, not confident error.
 
 ---
 
@@ -112,10 +118,11 @@ Ground truth is computed in closed form from the asked ranges, so it is
 
 ---
 
-## 4. The four experiments
+## 4. The experiments
 
-All four live in `bench/` and share the same evaluator, client, and ground-truth
-machinery. Each is one runnable module.
+All live in `bench/` and share the same evaluator, client, and ground-truth
+machinery. Each is one runnable module. The first four (this section) establish the
+core result; §10 adds the predicate-coverage extension.
 
 | Module | Question it answers |
 | :--- | :--- |
@@ -123,6 +130,8 @@ machinery. Each is one runnable module.
 | `proto_pipeline.py` | Does a sequential gate→REPL pipeline get both calibration and math? |
 | `proto_gate_adv.py` | Does the LLM gate survive *subtle* gaps? (adversarial) |
 | `proto_gate_repl.py`| Does moving the gate into the REPL close the hole? (the fix) |
+| `proto_gate_decl/2`, `proto_gate_noise` | Hardening: declaration ambiguity, noisy parsing (§5.6–5.8) |
+| `proto_predicate`, `proto_coverage/2` | Predicate-defined coverage (§10) |
 
 ### 4.1 Outcome taxonomy (`bench/evaluator.py::classify_outcome`)
 
@@ -362,7 +371,7 @@ Copy-Item .env.example .env
 Config is read from `.env` via `bench/config.py` (`load_dotenv()`); knobs:
 `OPENROUTER_API_KEY`, `BENCH_MODEL`, `BENCH_TEMP` (default 0.0), `BENCH_TRIALS`.
 
-### 6.2 Run the four experiments in order
+### 6.2 Run the experiments in order
 
 ```powershell
 python -m bench.proto_belief      # 3 arms × 2 regimes × 2 difficulties × 5 variants
@@ -372,6 +381,9 @@ python -m bench.proto_gate_repl   # the fix: REPL-grounded gate (expect 0/15 fal
 python -m bench.proto_gate_decl   # audit the declaration step (8 ambiguous phrasings)
 python -m bench.proto_gate_decl2  # the declaration fix (explicit interpretation + ambiguous flag)
 python -m bench.proto_gate_noise  # model-written parser vs noisy context (4 styles)
+python -m bench.proto_predicate   # predicate coverage: weak vs deletion-proof invariant
+python -m bench.proto_coverage    # LLM declares coverage invariant; REPL validates
+python -m bench.proto_coverage2   # adversarial labels + UNDECIDABLE verdict
 ```
 
 For the cross-model run, set `BENCH_MODEL` to a non-Gemini backbone (e.g.
@@ -419,6 +431,9 @@ summary printed at the end is fully reconstructable from these rows.
 | `bench/proto_gate_decl.py`| audits the declaration step (boundary-ambiguous phrasings) |
 | `bench/proto_gate_decl2.py`| declaration fix: explicit interpretation + ambiguous flag |
 | `bench/proto_gate_noise.py`| model-written parser vs noisy/prose context |
+| `bench/proto_predicate.py`| predicate coverage: weak vs deletion-proof invariant |
+| `bench/proto_coverage.py`| LLM declares the coverage invariant; REPL validates (2 gates) |
+| `bench/proto_coverage2.py`| adversarial labels + UNDECIDABLE verdict |
 | `plugins/belief-gate/`   | the technique packaged as a Claude Code skill |
 | `IDEAS.md`               | running lab notebook with the full arc + paper links |
 
@@ -437,17 +452,22 @@ summary printed at the end is fully reconstructable from these rows.
   resolution*, not translation error — fixed by surfacing the interpretation
   (ambiguity flagged 1/1, precise cases unharmed 0/7 false-flag).
 - The model-written parser survives noisy/prose context (8/8).
+- **Predicate-defined requirements** (no enumerable set) extend the gate: coverage
+  needs a *deletion-proof invariant* (count or contiguity; sorting is an illusion),
+  the invariant choice can be delegated to the LLM and validated in two gates
+  (5/5), and a third verdict UNDECIDABLE handles predicates not evaluable from the
+  data. See §10.
+- The system errs **only toward refusal**, never toward false-certification —
+  verified leak-proof across all declared claims (§10.4).
 - Net effect: shrink the LLM to intent→structure translation, push all checkable
   work onto the CPU — cheaper, faster, model-independent, and more reliable.
 
 **Does not establish (open work):**
 - Real statistical power (temp=0 makes runs near-deterministic; vary phrasing /
-  seeds for true n). The clean separations (0/15 twice, 8/8, double dissociation)
-  are robust; a 1-of-5 wobble is not.
-- **Non-enumerable required sets.** The whole approach assumes the requirement can
-  be declared as an explicit set. Predicate-defined requirements ("all sales >
-  5000", "every flagged customer") have no a-priori enumerable set to diff against.
-  This is the next research frontier, not a hardening gap — see §10.
+  seeds for true n). The clean separations (0/15 twice, 8/8, 5/5, double
+  dissociation) are robust; a 1-of-5 wobble is not.
+- The precise boundary of fundamentally-undecidable predicates, and the small
+  `claim_total`-validation hardening that recovers the one over-abstain (§10.5).
 - Untrusted input (the REPL is bare `exec()`), and domains where there is no
   closed-form fallback to recover a missing value.
 
@@ -511,27 +531,118 @@ head), which was not.
 
 ---
 
-## 10. The open frontier — predicate-defined requirements
+## 10. Predicate-defined requirements — from set difference to coverage proof
 
-The gate works because the requirement is an *enumerable set*: `{200..250}`, twelve
-months, a list of invoices. Many real tasks define the requirement by a *predicate*
-instead — "all sales above 5000", "every customer flagged in the audit", "each
-order missing a shipping date". There is no a-priori set to diff against, because
-membership depends on data you may not fully have.
+The gate so far works because the requirement is an *enumerable set*: `{200..250}`,
+twelve months, a list of invoices. Many real tasks define the requirement by a
+*predicate* — "all sales above 5000", "every customer flagged in the audit". There
+is no a-priori set to diff against; membership depends on data you may not fully
+have. Completeness becomes a **coverage** question: *have I seen every record the
+predicate could select?* Three experiments (`proto_predicate.py`,
+`proto_coverage.py`, `proto_coverage2.py`) close this frontier on
+`deepseek-v4-flash`.
 
-This is not a hardening gap; it is a different problem. The natural extension: the
-LLM declares the *predicate* as a function rather than a set, and the deterministic
-layer (a) applies it over whatever context is present and (b) reasons about whether
-the *source* could contain unseen members that satisfy it. Completeness becomes
-"have I seen all records the predicate could select?" — which may itself require a
-coverage argument (e.g. "the source is sorted by amount and I've seen down to
-4999") rather than a set difference. That is the next research step.
+### 10.1 Coverage needs a deletion-proof invariant (not just determinism)
+
+`proto_predicate.py` — predicate "sum sales > 5000", 5 scenarios, three arms: an
+LLM judge, a deterministic verifier that accepts *sorted + boundary crossed* as
+proof (`weak`), and one that demands a *deletion-proof* invariant (`robust`).
+
+| arm | correct | fails on |
+| :--- | :---: | :--- |
+| llm_judge   | 4/5 | mid-deletion (judges coverage in-head) |
+| repl_weak   | 4/5 | mid-deletion (deterministic, **wrong invariant**) |
+| repl_robust | 5/5 | — |
+
+The pivotal scenario is **mid-deletion**: a sorted list with one qualifying record
+removed from the middle. The list is *still sorted* and the boundary is *still
+crossed*, so `repl_weak` — though fully deterministic, no LLM — certifies COMPLETE
+and computes a wrong sum. It and the LLM judge even emit the *same* wrong number
+(659968): they share the fallacy "sorted ⇒ complete." Only `repl_robust`, which
+requires `full_count` or contiguous IDs, catches it.
+
+> **The refinement this forces on the whole thesis:** moving to execution only
+> helps if you execute over the invariant that *actually proves the property*.
+> Determinism over the wrong invariant fails as silently as judgment. The hard part
+> isn't "run code" — it's identifying which invariant is deletion-proof. The
+> enumerable gate got that proof for free (the required set *was* the contiguity
+> guarantee); the predicate strips the crutch and makes it explicit.
+
+### 10.2 The invariant choice can be delegated to the LLM and stay safe
+
+`proto_coverage.py` moves the "which proof applies?" choice from a hardcoded
+verifier into a **checkable LLM declaration**. The LLM reads the source description
+and declares `claim_kind` ∈ {`full_count`, `contiguous_ids`, `sorted_to_threshold`,
+`none`} plus a total. The REPL validates two gates: (a) is the kind deletion-proof?
+(b) does it hold in the data? CERTIFY only if both.
+
+| arm | correct | tokens |
+| :--- | :---: | :---: |
+| llm_only  | 3/5 (2 false-complete) | ~29k |
+| declared  | **5/5** (0 false-complete) | ~16k |
+
+The reveal is in *how* the model decided. It declared the correct coverage category
+in all five. On the trap scenario, free-judging (`llm_only`) it false-completed
+(659968 again); **forced to declare the invariant, the same model chose `none`** —
+it *knows* "sorted + complete export" doesn't prove coverage; it just doesn't use
+that knowledge when left to judge freely. The two-gate validator means the LLM can
+err in **both** directions — pick a weak invariant (rejected on kind, even when the
+weak claim is *true*) or lie a strong one (rejected on data) — and the system never
+false-completes. And it used half the tokens: declaring a short claim is cheaper
+than rationalizing coverage in prose.
+
+### 10.3 Lying labels and the undecidable case
+
+`proto_coverage2.py` adds a third verdict, **UNDECIDABLE**, and probes two edges.
+
+**Adversarial source labels.** A source labelled "complete, 200 rows" that actually
+ships 140 (or claims contiguous IDs with one mid-deleted). Even when the LLM
+*believes the label* and mis-declares, `len(records) == claimed_total` fails and the
+verdict is INCOMPLETE. A false completeness label cannot survive an actual count —
+**the data gate, not the LLM's trust, carries the guarantee.**
+
+**The undecidable predicate.** "Sum of FLAGGED customers", where flagged-ness comes
+from an external audit *not in the records*. Here even `full_count=200` (perfect
+coverage) doesn't help: the predicate cannot be evaluated from the data at all. The
+honest answer is UNDECIDABLE — distinct from INCOMPLETE (a proved gap) and COMPLETE
+(a proved sum). DeepSeek declared `undecidable` **spontaneously**, recognizing that
+*seeing every record doesn't help when the property defining membership lives
+outside the data.* **Coverage and evaluability are different axes**; full coverage
+does not imply a decidable predicate.
+
+Score: 4/5. The one miss is instructive — on a decidable flagged case the LLM put
+the *expected answer* (129291) into `claim_total` instead of the record count (200);
+the validator checked `len == 129291`, failed, and returned INCOMPLETE. That is the
+validator working: a declaration slip (count vs answer) was rejected to the **safe
+side** — over-abstain, not false-complete. Same class as the "entre" off-by-one: a
+checkable translation error, not a judgment error.
+
+### 10.4 The safety asymmetry
+
+Across every predicate experiment the system errs **only toward refusal**
+(over-abstain), **never toward false-certification**. No incomplete or undecidable
+scenario was ever certified COMPLETE — verified leak-proof offline across all
+possible declared claims, and confirmed in every run. For a safety gate this is the
+correct asymmetry: refusing a valid task is tolerable; certifying an invalid one is
+catastrophic. The system only ever makes the tolerable error.
+
+### 10.5 Where completeness is still fundamentally undecidable
+
+The honest boundary: when a predicate's qualifying set cannot be bounded by *any*
+invariant obtainable from the source — no count, no key contiguity, no sort that
+brackets membership — coverage is undecidable in principle, not merely unproven. The
+right system output there is UNDECIDABLE with a statement of what would be needed
+(an authoritative count, the missing field), not a guess. Mapping that boundary
+precisely, and the small `claim_total`-validation hardening that would recover the
+4/5 case, are the remaining open items.
 
 ---
 
 ## 11. The one-line thesis
 
-> Move determinism out of the LLM, one step at a time. First arithmetic, then
-> completeness checking, then boundary interpretation. What remains is the
-> irreducible, *checkable* linguistic core — and the system gets cheaper, faster,
-> model-independent, and more reliable at every step.
+> Move determinism out of the LLM, one step at a time — arithmetic, then
+> completeness checking, then boundary interpretation, then the coverage proof
+> itself. What remains is the irreducible, *checkable* linguistic core: translate
+> intent into a structure the CPU can verify. The system gets cheaper, faster,
+> model-independent, and — crucially — it errs only toward honest refusal, never
+> toward confident wrong answers.

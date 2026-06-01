@@ -1,8 +1,8 @@
 # Decompose-the-Computation: a REPL-Grounded Gate for Retrieval Pipelines
 
-**Status:** Empirical prototype report. All numbers from local runs, May 2026,
-`google/gemini-2.5-flash` via OpenRouter, `temperature=0`. Reproducible with the
-`bench/` harness in this repo.
+**Status:** Empirical prototype report. Numbers from local runs, May–Jun 2026,
+`google/gemini-2.5-flash` and `deepseek/deepseek-v4-flash` via OpenRouter,
+`temperature=0`. Reproducible with the `bench/` harness in this repo.
 
 ---
 
@@ -23,11 +23,18 @@ WHAT the answer is** (arithmetic). We show, on a multi-file numeric-join task:
 4. Moving the completeness check **into the REPL** — the LLM declares the required
    ID set as code, the CPU computes `required − present` by set difference —
    drops false-pass to **0/15**, with the LLM emitting only ~66 tokens.
+5. This holds **across models** (0/15 on Gemini *and* DeepSeek, where the LLM-gate
+   scored 7/15 and 2/15), survives **noisy/prose context** (model-written parser,
+   8/8), and the residual weak point — the declaration step — fails only by
+   *silently resolving genuine ambiguity*, fixed by making the interpretation
+   explicit (ambiguity flagged 1/1, precise cases unharmed).
 
-The throughline: **every deterministic sub-task (arithmetic, completeness
-checking) is done better, cheaper, and more reliably outside the LLM.** The LLM
-shrinks to its irreducible role — translating natural-language intent into
-executable structure.
+The throughline: **every deterministic sub-task (arithmetic, completeness checking,
+boundary interpretation) is done better, cheaper, more model-independently, and
+more reliably outside the LLM.** The LLM shrinks to its irreducible, *checkable*
+role — translating natural-language intent into executable structure, and writing a
+parser for an unseen format. The open frontier is requirements defined by a
+*predicate* rather than an enumerable set (§10).
 
 ---
 
@@ -267,6 +274,79 @@ each FAIL even reports the exact gap (`missing_A=[210]`). And it is cheaper and
 faster: ~66 tokens / ~1.5 s versus the LLM-gate's 1500–1900 tokens / ~8 s. **Less
 LLM = better**, precisely because the part the LLM did badly became computation.
 
+### 5.6 Hardening the residual SPOF — the declaration step
+
+The REPL-gate's set difference is bulletproof, but the LLM still does one thing:
+translate "IDs 200–250" into `set(range(...))`. We stress-tested that single step
+with 8 boundary-ambiguous phrasings (`proto_gate_decl.py`), capturing the
+*declared* set by executing the LLM's code and comparing to intent.
+
+Result: **7/8 declared-set correct.** The pattern matters more than the score. The
+model got the *objectively tricky* phrasings right — `[200, 250)` half-open →
+`range(200, 250)`; "os 51 IDs a partir de 200" → `range(200, 200 + 51)` (wrote the
+count arithmetic *in the code*, didn't do it in its head). The one miss was the only
+*genuinely* ambiguous phrasing: "entre 200 e 250" → `{201..249}` (strictly between)
+— a defensible reading, not an error.
+
+So the residual failure isn't translation accuracy; it's **silent ambiguity
+resolution**: the model picked one reading and didn't flag it, then the gate
+computed perfectly against a possibly-wrong premise. The fix (`proto_gate_decl2.py`)
+makes the declaration emit the set *plus* an `interpretation` string and an
+`ambiguous` flag:
+
+- Declared-set accuracy: 7/8 (unchanged — fix didn't hurt precise cases)
+- Ambiguous phrasing flagged: **1/1** (was 0/1) — "entre" now marked ambiguous and
+  verbalized ("read as exclusive, IDs 201–249")
+- False-flag on precise phrasings: **0/7** (didn't become paranoid)
+
+The point was never to "correctly" resolve an inherently ambiguous phrase — it was
+to stop resolving it *silently*. A silent guess becomes a visible, confirmable
+decision. (Same "make the belief explicit" move as the gate itself, one level up.)
+
+### 5.7 Noisy-context parsing — the other dependency
+
+The set difference is only as good as the present-set parsed from context. The
+clean benchmark used perfectly formatted data; real exports are messy. We tested
+the realistic deployment (`proto_gate_noise.py`) where the *model* writes the
+extraction code, given context in four surface forms:
+
+| style | example | recovered |
+| :--- | :--- | :---: |
+| clean | `ID_200: Venda de R$ 3000` | 11/11 |
+| mixed_delim | `ID_200` / `ID-201` / `ID 202` / `id 203 ->` | 11/11 |
+| annotated | `ID_200 [ok]`, `ID_201 (revisado)`, `// nota` | 11/11 |
+| prose | `Transacao 200 no valor de R$ 3000.` | 11/11 |
+
+**8/8 OK** (4 styles × full/missing-205). Even prose with no `ID_` prefix → 11/11,
+and the real gap (missing 205) was flagged in every style. Parsing is not a hole:
+told to write a parser for the format, the model handles realistic noise.
+
+### 5.8 Cross-model — the strength is the model-independent part
+
+We re-ran the adversarial gate and the REPL-gate on a second backbone
+(`deepseek-v4-flash`):
+
+|                       | Gemini-2.5-flash | DeepSeek-v4-flash |
+| :-------------------- | :--------------: | :---------------: |
+| LLM-gate FALSE-PASS   | 7/15             | 2/15              |
+| REPL-gate FALSE-PASS  | **0/15**         | **0/15**          |
+
+Two findings:
+
+1. **REPL-gate = 0/15 on both models.** The strength is deterministic — set
+   difference does not depend on the backbone.
+2. **The LLM-gate fails *differently* per model (7 vs 2), which strengthens the
+   case.** DeepSeek judges better in-head but still false-passes. The takeaway
+   isn't "which model judges better" — it's that judgment has an irreducible,
+   model-dependent, *unpredictable* error rate, whereas execution is 0 on any
+   model. You can't predict how bad the LLM-gate will be; you can guarantee the
+   REPL-gate is 0. (In one DeepSeek false-pass the gate text literally listed
+   "IDs 400-409 e 411-420" — it saw the 410 was missing and concluded PASS anyway.)
+
+The efficiency gap also widens on verbose models: DeepSeek's LLM-gate hit 3308
+tokens / 86 s in one case; its REPL-gate stayed ~60–280 tokens / 3–8 s. More
+"thinking" means more expensive judgment, so deterministic gating wins harder.
+
 ---
 
 ## 6. How to replicate
@@ -289,7 +369,13 @@ python -m bench.proto_belief      # 3 arms × 2 regimes × 2 difficulties × 5 v
 python -m bench.proto_pipeline    # sequential gate->REPL, 2x2
 python -m bench.proto_gate_adv    # adversarial: subtle gaps, LLM gate (expect ~7/15 false-pass)
 python -m bench.proto_gate_repl   # the fix: REPL-grounded gate (expect 0/15 false-pass)
+python -m bench.proto_gate_decl   # audit the declaration step (8 ambiguous phrasings)
+python -m bench.proto_gate_decl2  # the declaration fix (explicit interpretation + ambiguous flag)
+python -m bench.proto_gate_noise  # model-written parser vs noisy context (4 styles)
 ```
+
+For the cross-model run, set `BENCH_MODEL` to a non-Gemini backbone (e.g.
+`deepseek/deepseek-v4-flash`) and re-run `proto_gate_adv` + `proto_gate_repl`.
 
 Each writes a timestamped `results/<name>_<ts>.jsonl` (one row per eval, full
 input/output/tokens/latency/cost) and prints its matrices + a summary block at the
@@ -330,35 +416,122 @@ summary printed at the end is fully reconstructable from these rows.
 | `bench/proto_pipeline.py`| sequential belief-gate → REPL-compute |
 | `bench/proto_gate_adv.py`| adversarial subtle-gap conditions; LLM gate |
 | `bench/proto_gate_repl.py`| REPL-grounded gate (declare → set-diff → compute) |
+| `bench/proto_gate_decl.py`| audits the declaration step (boundary-ambiguous phrasings) |
+| `bench/proto_gate_decl2.py`| declaration fix: explicit interpretation + ambiguous flag |
+| `bench/proto_gate_noise.py`| model-written parser vs noisy/prose context |
+| `plugins/belief-gate/`   | the technique packaged as a Claude Code skill |
 | `IDEAS.md`               | running lab notebook with the full arc + paper links |
 
 ---
 
 ## 8. What this does and does not establish
 
-**Establishes (on this task, this model):**
-- Calibration and computation are separable axes a single prompt can't both serve.
-- Decomposing them into sequential stages captures both.
-- An LLM completeness gate is unreliable against interior gaps; reframing
-  completeness as a deterministic set-difference eliminates the failure.
-- The net effect is to shrink the LLM's role to intent→structure translation,
-  pushing all checkable work onto the CPU — and this is cheaper and more reliable.
+**Establishes (on this task family, two models):**
+- Calibration and computation are separable axes a single prompt can't both serve
+  (double dissociation).
+- Decomposing them into sequential stages captures both (20/20).
+- An LLM completeness gate is unreliable against interior gaps (7/15 Gemini, 2/15
+  DeepSeek); reframing completeness as a deterministic set-difference eliminates
+  the failure (**0/15 on both models**).
+- The residual SPOF is the declaration step, and its failure is *silent ambiguity
+  resolution*, not translation error — fixed by surfacing the interpretation
+  (ambiguity flagged 1/1, precise cases unharmed 0/7 false-flag).
+- The model-written parser survives noisy/prose context (8/8).
+- Net effect: shrink the LLM to intent→structure translation, push all checkable
+  work onto the CPU — cheaper, faster, model-independent, and more reliable.
 
 **Does not establish (open work):**
-- Cross-model generality (only Gemini-2.5-flash tested).
-- Real statistical power (temp=0 makes runs near-deterministic; vary phrasing for
-  true n).
-- Robustness of the *declaration* step — the LLM could still mis-translate a range
-  (e.g. off-by-one on "inclusive"). Here it was 20/20, but a range-validation guard
-  would harden it. Note the failure mode moved from "judgment" (hard) to
-  "translation" (easy and checkable) — which is the point.
-- Non-formulaic / unbounded data, and tasks where the required set isn't a clean
-  range.
+- Real statistical power (temp=0 makes runs near-deterministic; vary phrasing /
+  seeds for true n). The clean separations (0/15 twice, 8/8, double dissociation)
+  are robust; a 1-of-5 wobble is not.
+- **Non-enumerable required sets.** The whole approach assumes the requirement can
+  be declared as an explicit set. Predicate-defined requirements ("all sales >
+  5000", "every flagged customer") have no a-priori enumerable set to diff against.
+  This is the next research frontier, not a hardening gap — see §10.
+- Untrusted input (the REPL is bare `exec()`), and domains where there is no
+  closed-form fallback to recover a missing value.
 
 ---
 
-## 9. The one-line thesis
+## 9. Composing the pieces — the gate-REPL as one system (concept)
+
+The four experiments produced separable components. Composed, they form a single
+context-grounded answering pipeline. This section describes the concept and method;
+it is the integration target, not yet a measured end-to-end system.
+
+### 9.1 Components and their proven properties
+
+| Component | Job | Proven property |
+| :--- | :--- | :--- |
+| **Declare** | task NL → `required` set + rates + interpretation | precise 7/7; ambiguity surfaced 1/1 |
+| **Parse** | context → `present` set (model-written, noise-robust) | 8/8 incl. prose |
+| **Gate** | `required − present` in executed code | 0/15 false-pass, two models |
+| **Recover** | on gap, read missing value from a source (file/query) | R1/R2 manual; never estimates |
+| **Compute** | on PASS, do the deterministic work in code | exact via execution |
+
+### 9.2 Control flow
+
+```
+task + context
+     │
+     ▼
+[Declare]  LLM emits: required set, rates, interpretation, ambiguous?
+     │           └─ if ambiguous → surface interpretation, ask/confirm
+     ▼
+[Parse]    model writes a parser for THIS context → present set
+     │
+     ▼
+[Gate]     gap = required − present        (executed, deterministic)
+     ├─ gap empty ────────────────► [Compute] → FINAL
+     └─ gap non-empty
+            │
+            ▼
+        [Recover] is a source available (file/query)?
+            ├─ yes → read the missing items → re-run [Gate]
+            └─ no  → ABSTAIN, report the exact gap   (never estimate)
+```
+
+### 9.3 The invariant that makes it safe
+
+Every decision that *can* be deterministic *is* — completeness (set difference),
+recovery (read, don't estimate), arithmetic (execute, don't reason). The LLM
+contributes only the two genuinely linguistic acts: translating intent into a
+required set, and writing a parser for an unseen format. Each of those is
+**checkable** (the declared set can be echoed back; the parser's recovered set can
+be re-verified), unlike the original act it replaced (judging completeness in the
+head), which was not.
+
+### 9.4 Where it still needs a human or a fallback
+
+- **Ambiguous intent.** When the declaration flags ambiguity, the safe path is to
+  confirm with the user, not to proceed on a guess.
+- **No recovery source.** If the gap can't be filled from a real source, the
+  pipeline abstains — by design, not failure.
+- **Non-enumerable requirements.** §10.
+
+---
+
+## 10. The open frontier — predicate-defined requirements
+
+The gate works because the requirement is an *enumerable set*: `{200..250}`, twelve
+months, a list of invoices. Many real tasks define the requirement by a *predicate*
+instead — "all sales above 5000", "every customer flagged in the audit", "each
+order missing a shipping date". There is no a-priori set to diff against, because
+membership depends on data you may not fully have.
+
+This is not a hardening gap; it is a different problem. The natural extension: the
+LLM declares the *predicate* as a function rather than a set, and the deterministic
+layer (a) applies it over whatever context is present and (b) reasons about whether
+the *source* could contain unseen members that satisfy it. Completeness becomes
+"have I seen all records the predicate could select?" — which may itself require a
+coverage argument (e.g. "the source is sorted by amount and I've seen down to
+4999") rather than a set difference. That is the next research step.
+
+---
+
+## 11. The one-line thesis
 
 > Move determinism out of the LLM, one step at a time. First arithmetic, then
-> completeness checking. What remains is the irreducible linguistic core — and the
-> system gets cheaper, faster, and more reliable at every step.
+> completeness checking, then boundary interpretation. What remains is the
+> irreducible, *checkable* linguistic core — and the system gets cheaper, faster,
+> model-independent, and more reliable at every step.

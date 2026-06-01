@@ -81,36 +81,35 @@ import re
 
 context = """<<paste or reference the retrieved/provided context here>>"""
 
-# extract what's actually present (adapt the pattern to your data)
-present_A = set(int(m) for m in re.findall(r"loja_A.*?ID_(\d+)", context, re.S))
-present_B = set(int(m) for m in re.findall(r"loja_B.*?ID_(\d+)", context, re.S))
+required = set(range(200, 251))                          # from Step 1
+present  = set(int(m) for m in re.findall(r"ID_(\d+)", context))  # parse, don't guess
+gap      = sorted(required - present)                    # set difference
 
-gap_A = sorted(required_A - present_A)
-gap_B = sorted(required_B - present_B)
-
-if gap_A or gap_B:
-    print(f"GATE: FAIL  missing_A={gap_A}  missing_B={gap_B}")
-else:
-    print("GATE: PASS")
+print(f"GATE: FAIL  missing={gap}" if gap else "GATE: PASS")
 ```
 
-The general shape, whatever the domain:
+The general shape, whatever the domain — keys can be IDs, field names, dates,
+filenames, anything enumerable:
 
 ```python
-present = extract_present_keys(context)     # parse, don't guess
+present = extract_present_keys(context)     # parse what's actually there
 gap = required - present                     # set difference
 print("GATE: FAIL", sorted(gap)) if gap else print("GATE: PASS")
 ```
+
+For multi-source tasks (several files/ranges), run one set difference per source
+and FAIL if any gap is non-empty.
 
 ### Step 3 — Gate on the executed result
 
 - **GATE: FAIL** → Tell the user you cannot answer completely, and report the
   exact missing items from the code output. Example:
-  > I can't compute this reliably — the context is missing store B IDs 410 and
-  > 411. With those I can finish; right now any total would be wrong.
+  > I can't compute this reliably — the context is missing IDs 410 and 411. With
+  > those I can finish; right now any total would be wrong.
 
   Never fill the hole. "Assume 0", "interpolate", "use the average" all silently
-  corrupt the answer.
+  corrupt the answer. If a source is available (a file, a query), recover the
+  missing item by reading it — never by estimating.
 
 - **GATE: PASS** → Proceed. If the remaining work is deterministic (summing,
   joining, counting), do THAT in code too — same principle: don't compute in your
@@ -118,10 +117,8 @@ print("GATE: FAIL", sorted(gap)) if gap else print("GATE: PASS")
 
 ```python
 # gate passed: compute the actual answer by execution
-vals_A = {i: v for i, v in parsed_A.items() if i in required_A}
-vals_B = {i: v for i, v in parsed_B.items() if i in required_B}
-total = sum(v * rates["A"] for v in vals_A.values()) \
-      + sum(v * rates["B"] for v in vals_B.values())
+values = {int(i): int(v) for i, v in re.findall(r"ID_(\d+):\D*(\d+)", context)}
+total = sum(v * 0.08 for k, v in values.items() if k in required)
 print(f"FINAL: {total}")
 ```
 

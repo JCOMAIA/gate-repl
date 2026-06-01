@@ -1,4 +1,5 @@
 ---
+name: belief-gate
 description: >-
   Use BEFORE answering any question that requires grounding in retrieved or
   provided context (RAG results, pasted documents, query outputs, multi-file

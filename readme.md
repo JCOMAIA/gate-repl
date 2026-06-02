@@ -384,6 +384,7 @@ python -m bench.proto_gate_noise  # model-written parser vs noisy context (4 sty
 python -m bench.proto_predicate   # predicate coverage: weak vs deletion-proof invariant
 python -m bench.proto_coverage    # LLM declares coverage invariant; REPL validates
 python -m bench.proto_coverage2   # adversarial labels + UNDECIDABLE verdict
+python -m bench.proto_coverage3   # self-consistency repair loop + undue-undecidable gate
 ```
 
 For the cross-model run, set `BENCH_MODEL` to a non-Gemini backbone (e.g.
@@ -434,6 +435,7 @@ summary printed at the end is fully reconstructable from these rows.
 | `bench/proto_predicate.py`| predicate coverage: weak vs deletion-proof invariant |
 | `bench/proto_coverage.py`| LLM declares the coverage invariant; REPL validates (2 gates) |
 | `bench/proto_coverage2.py`| adversarial labels + UNDECIDABLE verdict |
+| `bench/proto_coverage3.py`| self-consistency repair loop + undue-undecidable gate |
 | `plugins/belief-gate/`   | the technique packaged as a Claude Code skill |
 | `IDEAS.md`               | running lab notebook with the full arc + paper links |
 
@@ -457,17 +459,20 @@ summary printed at the end is fully reconstructable from these rows.
   the invariant choice can be delegated to the LLM and validated in two gates
   (5/5), and a third verdict UNDECIDABLE handles predicates not evaluable from the
   data. See §10.
+- Declaration errors are recovered without losing safety: a self-consistency repair
+  loop fixes form slips and a deterministic gate rejects undue `undecidable` — both
+  arms 4/4, 0 false-complete (§10.4).
 - The system errs **only toward refusal**, never toward false-certification —
-  verified leak-proof across all declared claims (§10.4).
+  verified leak-proof across all declared claims (§10.5).
 - Net effect: shrink the LLM to intent→structure translation, push all checkable
   work onto the CPU — cheaper, faster, model-independent, and more reliable.
 
 **Does not establish (open work):**
 - Real statistical power (temp=0 makes runs near-deterministic; vary phrasing /
-  seeds for true n). The clean separations (0/15 twice, 8/8, 5/5, double
+  seeds for true n). The clean separations (0/15 twice, 8/8, 5/5, 4/4, double
   dissociation) are robust; a 1-of-5 wobble is not.
-- The precise boundary of fundamentally-undecidable predicates, and the small
-  `claim_total`-validation hardening that recovers the one over-abstain (§10.5).
+- The precise boundary of fundamentally-undecidable predicates where no count
+  exists even in principle (§10.6).
 - Untrusted input (the REPL is bare `exec()`), and domains where there is no
   closed-form fallback to recover a missing value.
 
@@ -538,9 +543,9 @@ twelve months, a list of invoices. Many real tasks define the requirement by a
 *predicate* — "all sales above 5000", "every customer flagged in the audit". There
 is no a-priori set to diff against; membership depends on data you may not fully
 have. Completeness becomes a **coverage** question: *have I seen every record the
-predicate could select?* Three experiments (`proto_predicate.py`,
-`proto_coverage.py`, `proto_coverage2.py`) close this frontier on
-`deepseek-v4-flash`.
+predicate could select?* Four experiments (`proto_predicate.py`,
+`proto_coverage.py`, `proto_coverage2.py`, `proto_coverage3.py`) close this frontier
+on `deepseek-v4-flash`.
 
 ### 10.1 Coverage needs a deletion-proof invariant (not just determinism)
 
@@ -615,30 +620,128 @@ the *expected answer* (129291) into `claim_total` instead of the record count (2
 the validator checked `len == 129291`, failed, and returned INCOMPLETE. That is the
 validator working: a declaration slip (count vs answer) was rejected to the **safe
 side** — over-abstain, not false-complete. Same class as the "entre" off-by-one: a
-checkable translation error, not a judgment error.
+checkable translation error, not a judgment error. §10.4 recovers it generically.
 
-### 10.4 The safety asymmetry
+### 10.4 Self-consistency repair — recovering declaration slips without losing safety
+
+The 4/5 miss was a *correctable* slip: the task was decidable, the system just
+refused it. The tempting fix — special-case `claim_total` — is not generalist.
+`proto_coverage3.py` instead adds a **declare → check-consistency → (repair)\* →
+decide** loop. The consistency check is generic: it flags any declared field that
+cannot be reconciled with the data (e.g. a total that equals an aggregate of the
+values rather than a record count) and returns a precise diagnostic; the LLM
+re-declares; only then does `decide()` run. This is the *third side* of the
+guarantee — never false-complete, abstain honestly when undecidable, and now **don't
+refuse a correctable slip.**
+
+Two arms over 4 scenarios: a real model, and a `buggy_first` declarer that *always*
+mis-places the answer value into `claim_total` on attempt 1 (to isolate whether the
+loop, not model luck, recovers it). Result: **both arms 4/4, 0 false-complete.**
+`buggy_first` recovers every scenario via one repair round.
+
+Two findings the loop surfaced:
+
+1. **The repair must not invent the answer from visible data.** An offline check
+   caught a near-bug: a naive repair that declares `claim_total = len(present)` would
+   re-introduce false-complete on partial data (140 present "repaired" to 140 →
+   certified). The fix: repair reads the *source's* claimed total (the "200 de 200"
+   label), never the present count. **The diagnostic points at the error but must not
+   suggest the answer from the data — suggesting it from the data is the very
+   anti-pattern the system exists to prevent.** With this, `partial` is repaired to
+   200, still ≠ 140 present → correctly INCOMPLETE.
+
+2. **Two distinct declaration-error classes — both now caught.** A *form* slip (value
+   in the count field) is incoherent with the data → caught. A *judgment* error
+   (declaring `undecidable` for a decidable predicate) is internally coherent, just
+   wrong — so it needs a semantic gate. We added one: `predicate_evaluable()` is
+   deterministic (`sum_gt` always; `flagged_sum` iff a flag field is present), so
+   `check_consistency` rejects an `undecidable` declaration when the predicate *is*
+   evaluable and asks for a coverage invariant instead. This closed the last gap
+   (the real model went 3/4 → 4/4), while leaving the *legitimate* undecidable
+   (external flag, predicate genuinely not evaluable) untouched. The asymmetry the
+   gate keys on — evaluability — is something `decide()` already computed; we just
+   moved the decidability judgment itself into a checkable gate.
+
+| LLM error                        | caught by         | recovers to |
+| :------------------------------- | :---------------- | :---------- |
+| form slip (value in count field) | check_consistency | re-declare  |
+| judgment (undue `undecidable`)   | check_consistency | re-declare  |
+| valid but source-incomplete      | decide()          | INCOMPLETE  |
+| predicate not evaluable          | decide()          | UNDECIDABLE |
+
+### 10.5 The safety asymmetry
 
 Across every predicate experiment the system errs **only toward refusal**
 (over-abstain), **never toward false-certification**. No incomplete or undecidable
 scenario was ever certified COMPLETE — verified leak-proof offline across all
-possible declared claims, and confirmed in every run. For a safety gate this is the
-correct asymmetry: refusing a valid task is tolerable; certifying an invalid one is
-catastrophic. The system only ever makes the tolerable error.
+possible declared claims, and confirmed in every run, including through the repair
+loop (neither slip-repair nor the undecidable gate ever traded safety for
+completeness). For a safety gate this is the correct asymmetry: refusing a valid
+task is tolerable; certifying an invalid one is catastrophic. The system only ever
+makes the tolerable error.
 
-### 10.5 Where completeness is still fundamentally undecidable
+### 10.6 Where completeness is still fundamentally undecidable
 
 The honest boundary: when a predicate's qualifying set cannot be bounded by *any*
 invariant obtainable from the source — no count, no key contiguity, no sort that
 brackets membership — coverage is undecidable in principle, not merely unproven. The
 right system output there is UNDECIDABLE with a statement of what would be needed
 (an authoritative count, the missing field), not a guess. Mapping that boundary
-precisely, and the small `claim_total`-validation hardening that would recover the
-4/5 case, are the remaining open items.
+precisely is the remaining open item; the declaration-slip and undue-undecidable
+gaps are now closed (§10.4).
 
 ---
 
-## 11. The one-line thesis
+## 11. Real-benchmark study — where the gate wins, ties, and loses
+
+The synthetic results above use regular `ID_N:` data. To find the real boundary we
+ran three benchmarks against three baselines (naive RAG, an LLM "sufficient-context"
+judge, and CoT self-critique), on real text and real financial tables.
+`bench/bench_niah.py`, `bench/realqa/`.
+
+### 11.1 Results, honestly
+
+| Benchmark | Data | Result for belief-gate |
+| :--- | :--- | :--- |
+| Multi-needle (NIAH) | 3430 lines of real paper text, 8 named needles | **Accuracy ties.** Obvious gaps; the LLM-judge already counts them. The gate's edge is property (constant cost, proof), not score. |
+| FinQA (gold support) | real 10-K tables, drop a gold supporting cell | **Does not apply.** Required set is annotation-derived; the key vanishes with the dropped item. Open-QA regime. |
+| Keyed aggregation | real FinQA tables, sum question-named columns, drop one | **Mid-pack** (false-suff 2/40 vs judge 1, cot 2, naive 3). Cheapest by 2×. Both error types were *extractor* failures. |
+
+### 11.2 The boundary the three benchmarks measured (not asserted)
+
+The lib's core (set difference, coverage verification) is flawless — 15/15 unit
+tests, leak-proof. The weak point in real data is the **extractor that produces the
+`present` set**. When that extractor is an LLM transcribing strings from messy
+text/tables, you reintroduce the judgment the gate exists to remove, *at the edge* —
+and the guarantee blurs (long near-identical headers mismatch; an unparsed list
+yields empty `present` and a false alarm).
+
+So the scope, measured:
+
+- ✅ **Structured/parseable `present` + task-derived `required`** → the gate wins
+  (0/15 false-pass): the original `ID_N:` regime, a DB query, an API, a deterministic
+  format parser. The key survives the datum's absence because the *task* names it.
+- ⚠️ **LLM-extracted `present` from prose/messy tables** → the extractor is the floor,
+  not the gate.
+- ❌ **Relevance only knowable by understanding the data (open QA)** → the gate needs
+  a relevance oracle it doesn't have; pair it with an LLM, don't use it alone.
+
+This is not a retreat from the synthetic result — it explains it. The fiscal scenario
+was not a convenient toy; it was *exactly* the regime where the gate applies. The
+real benchmarks bounded that regime by honest elimination, and turned the lib
+README's central claim ("enumerable, task-derived requirement; structured present")
+into a measured rule rather than an assertion.
+
+### 11.3 The load-bearing rule for users
+
+> Feed `present` from a parser / DB / API, not from an LLM reading prose. Derive
+> `required` from the task, not from the data. Inside that envelope the guarantee is
+> absolute (never false-completes); outside it, the gate degrades to whatever
+> produced its inputs.
+
+---
+
+## 12. The one-line thesis
 
 > Move determinism out of the LLM, one step at a time — arithmetic, then
 > completeness checking, then boundary interpretation, then the coverage proof

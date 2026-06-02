@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beliefgate"
+version = "0.1.0"
+description = "Verify context completeness by execution, not by judgment. A gate that never false-completes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["rag", "calibration", "abstention", "grounding", "hallucination", "retrieval", "completeness"]
+dependencies = []   # zero runtime dependencies — pure stdlib
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["beliefgate*"]

@@ -35,29 +35,39 @@ Run `/reload-plugins` after editing the skill during development.
 ## What it does, concretely
 
 When Claude answers from context (RAG results, a pasted document, a query dump),
-the skill makes it:
+the skill makes it do **two** deterministic moves:
 
 1. **Declare** the required set in code (`required = set(range(200, 251))`, the
    five region names, the invoice IDs, …).
-2. **Verify by execution** — write and run code that parses what's present and
-   computes `required − present`.
-3. **Gate**: if the gap is non-empty, abstain and report the exact missing items;
-   if empty, proceed and do the deterministic work (sums/joins/counts) in code too.
+2. **Gate by execution** — write and run code that parses what's present and
+   computes `required − present`; if the gap is non-empty, abstain with the exact
+   missing items.
+3. **Compute by execution** — if the gate passes and the work is deterministic
+   (sums/joins/counts), run *that* in code too. Measured: strong models score
+   3–6/80 on multi-cell financial sums (one model 0/40) — the LLM is the wrong tool
+   for exact arithmetic; the CPU does it perfectly and free.
 
 The only step left to the LLM is translating the task's language into a concrete
-required set — an easy, checkable step, unlike judging completeness.
+required set — an easy, checkable step, unlike judging completeness or doing the sum.
 
-## When it helps
+It also covers a **predicate-coverage** variant ("sum everything above X" — provable
+only under a deletion-proof invariant) and, if the `beliefgate` library is installed,
+will use its tested `check_set` / `verify_coverage` / `verify_fresh` primitives.
 
-- RAG / top-k retrieval that may not cover everything the task needs.
-- Truncated dumps, partial exports, multi-file joins.
+## When it helps (the measured regime)
+
+- The task **aggregates/computes** over context (a total, a join, a reconciliation),
+  where a silently missing slice yields a confident wrong number — measured at **35%**
+  on a strong model.
+- RAG / top-k retrieval, truncated dumps, partial exports, multi-file joins.
 - Any task where "I'm missing X" is a better answer than a confident wrong number.
 
-## When it won't fire (by design)
+## When it won't fire (by design — measured)
 
+- **Single-fact lookup** with an abstention option: models already self-abstain
+  (~0% confabulation measured); a gate adds nothing.
 - The full source is clearly, completely present.
-- Open-ended generation with no completeness requirement.
-- No well-defined required set to diff against.
+- Open-ended generation, or relevance/meaning with no enumerable required set.
 
 ## Reproducing the underlying benchmark
 

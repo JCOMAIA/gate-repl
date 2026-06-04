@@ -10,13 +10,21 @@ gaps (7/15 on one model, 2/15 on another). Moving the check into executed code �
 LLM declares the *required* set, the CPU computes `required − present` — drops that
 to **0/15, on both models**, and the system never certifies an answer it can't prove.
 
+End-to-end, the payoff is a double dissociation: routed through **LLM → gate → REPL**, a
+computable question is answered exactly or abstained — **80/80 correct, 80/80 abstain**
+across two models — while the same models answering directly score **3–6/80** on the
+arithmetic (gemini: 0/40) and confabulate on incomplete data. The gate fixes calibration;
+the REPL fixes arithmetic; only the full pipeline is clean on both.
+
 ## Start here
 
 | If you want to… | Read |
 | :--- | :--- |
+| **See every measured result in one place** | [`docs/FINDINGS.md`](docs/FINDINGS.md) — the consolidated executive summary (start here) |
 | **Use the gate in your code** | [`beliefgate/README.md`](beliefgate/README.md) — the installable library + a domain-adaptation guide |
-| **Understand the method & evidence** | [`docs/GATE_REPL.md`](docs/GATE_REPL.md) — the full write-up: double dissociation, the SPOF and its fix, cross-model, predicate coverage, the real-benchmark scope study |
-| **See the bigger picture & its limits** | [`docs/UNIFICATION.md`](docs/UNIFICATION.md) — the "coherence arrow" principle, what it unifies (extraction + verification), and the layer it does *not* (modality is irreducibly semantic — tested and refuted) |
+| **Wire it into a pipeline / MCP / Claude Code** | [`beliefgate/INTEGRATION.md`](beliefgate/INTEGRATION.md) and real [`docs/SCENARIOS.md`](docs/SCENARIOS.md) |
+| **Understand the method & evidence** | [`docs/GATE_REPL.md`](docs/GATE_REPL.md) — the full write-up: double dissociation, the SPOF and its fix, cross-model, predicate coverage, the real-benchmark scope study, the end-to-end pipeline |
+| **See the bigger picture & its limits** | [`docs/UNIFICATION.md`](docs/UNIFICATION.md) — the "coherence arrow" principle, what it unifies (extraction + verification + memory-coherence), and the layer it does *not* (modality is open-class — span-anchoring buys provenance, not CPU teeth) |
 | **Run it in Claude Code** | [`plugins/belief-gate/`](plugins/belief-gate/) — the technique packaged as a Claude Code skill |
 | **Follow the research log** | [`IDEAS.md`](IDEAS.md) — the lab notebook: every experiment, every paper link, every failure kept as a step |
 | **The original RLM/RAG benchmark** | [`WRITEUP.md`](WRITEUP.md) — the cross-provider M1–M4 study this grew out of |
@@ -35,9 +43,10 @@ else:
     abstain(res.missing)           # exact gap, e.g. [225]; never guess
 ```
 
-Zero runtime dependencies. 15/15 unit tests, leak-proof (never false-completes).
-Predicate coverage, an LLM-declaration repair loop, and an UNDECIDABLE verdict are
-in the library too — see its README.
+Zero runtime dependencies. 25/25 unit tests, leak-proof (never false-completes).
+Predicate coverage, an LLM-declaration repair loop, bookkeeping memory (`verify_fresh`
+— cache coherence with the same guarantee), and an UNDECIDABLE verdict are in the
+library too — see its README.
 
 ## The one rule that makes it work
 
@@ -52,15 +61,19 @@ weak point is always the *extractor* that feeds it. Details in `docs/GATE_REPL.m
 ## Repository layout
 
 ```
-beliefgate/          the installable library (pip install -e beliefgate)  + its README
+beliefgate/          the installable library (pip install -e beliefgate)  + README + INTEGRATION
 docs/
-  GATE_REPL.md        the method and the full empirical study
+  FINDINGS.md         consolidated executive summary of every measured result
+  GATE_REPL.md        the method and the full empirical study (incl. end-to-end pipeline)
   UNIFICATION.md      the coherence-arrow synthesis and its tested limits
+  SCENARIOS.md        real usage scenarios (where the gate earns its keep)
 plugins/belief-gate/  Claude Code skill packaging
 bench/                all experiments (reproducible; read each module's docstring)
   methods/            the original M1–M4 RAG/RLM ablation
-  realqa/             real-dataset harness (DROP / FinQA adapters)
-  modality/           the §5 memory-modality study (LLM vs lexicon vs RBF vs logistic)
+  realqa/             real-dataset harness: keyed aggregation + the end-to-end pipeline
+  memory/             bookkeeping-memory coherence demo (layer [3])
+  modality/           the memory-modality study (slot vs lexicon vs RBF vs span-anchoring)
+  openqa/             post-answer grounding guardrail (the open-QA boundary)
 IDEAS.md              running research notebook
 WRITEUP.md            the original cross-provider RLM/RAG report
 ```

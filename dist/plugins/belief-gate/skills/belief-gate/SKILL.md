@@ -26,9 +26,21 @@ holes** (ID 310 is actually absent). The fix is to stop judging and start
 **executing**: the requirement is a set, the context is a set, the gap is a set
 difference — and a set difference cannot miss an interior element.
 
-## The rule
+## The rule (two deterministic moves)
 
-> **Completeness is computation, not judgment. Compute it; do not estimate it.**
+> **Completeness is computation, not judgment. And so is the answer.**
+> Compute both; estimate neither.
+
+There are two places to move work off your probabilistic substrate and onto the CPU:
+
+1. **The gate** — *is the context complete?* A set difference, not a vibe.
+2. **The compute** — *what's the answer?* If the work is deterministic (a sum, a
+   join, a count), run it in code. Measured: on multi-cell financial sums, strong
+   models scored **3–6/80 correct** (one model 0/40) — they cannot reliably add ~15
+   formatted numbers. The same computation in code is exact and free.
+
+The gate stops you answering over incomplete data; the compute stops you fumbling the
+arithmetic over complete data. You need both.
 
 Do NOT decide "does this look complete?" in your head. Instead:
 
@@ -127,16 +139,54 @@ print(f"FINAL: {total}")
 
 ## When to use vs skip
 
-**Use it when:**
-- The context comes from retrieval (RAG / top-k), a truncated dump, a partial
-  export, or any source that might not be complete.
+**Use it when** (the regime where it measurably pays — confident confabulation is real here):
+- The task **aggregates or computes** over the context — a sum, a join, a count, a
+  reconciliation, a multi-source total. (Measured: in this regime a strong model
+  confabulated a wrong total **35%** of the time when a slice was silently missing.)
+- The context comes from retrieval (RAG / top-k), a truncated dump, a partial export.
 - The task needs *all* of a known set (every region, every invoice, an ID range).
 - A confidently wrong answer is worse than an honest "insufficient data".
 
-**Skip it when:**
+**Skip it when** (measured: the gate adds little — the model already self-abstains):
+- **Single-fact lookup** ("what is X?") with a clear way to say "not found". Models
+  abstain correctly here on their own (measured ~0% confabulation); a gate is latency
+  for no gain.
 - The full source is obviously, completely present and small.
-- The task is open-ended generation with no completeness requirement.
-- There is no well-defined "required set" to diff against.
+- Open-ended generation, or relevance/meaning judgments with no enumerable required set.
+- The required set can only be known by *understanding* the data (not derived from the
+  task) — there's no deterministic anchor to diff against.
+
+## Variant — predicate coverage ("sum everything above X")
+
+Sometimes the required set is not knowable up front ("total of all transactions over
+$10,000"). You can't enumerate it, so you can't diff it directly. Completeness becomes a
+**coverage** question, and it is only provable under a **deletion-proof invariant**:
+
+- ✅ you have a trusted **full count** of qualifying records and your rows match it, **or**
+- ✅ the records carry **contiguous IDs** with no gap.
+- ❌ "the list is sorted and I saw a value below the threshold" is **NOT** enough — a
+  record deleted from the *middle* leaves the list sorted and the boundary still crossed.
+
+If neither deletion-proof condition holds (e.g. you only received one page of a paginated
+result), **abstain** — you cannot prove you have the whole qualifying set. Don't sum a page
+and call it the total.
+
+## Optional accelerator — the `beliefgate` library
+
+If the project has `beliefgate` installed, use its tested primitives instead of
+hand-rolling (same guarantee, less code):
+
+```python
+from beliefgate import check_set, verify_fresh, remember
+res = check_set(required={"Q1","Q2","Q3"}, present=quarters_in_data)
+if not res.ok:
+    abstain(res.missing)            # exact gap
+```
+
+It also covers predicate coverage (`verify_coverage`) and cached-value coherence
+(`remember` / `verify_fresh` — re-check a derived value's source hasn't changed). If it
+is **not** installed, the inline set-difference above **is** the gate — nothing else
+needed. The technique is the point; the library is just a packaged, tested version of it.
 
 ## Why this works (one line)
 

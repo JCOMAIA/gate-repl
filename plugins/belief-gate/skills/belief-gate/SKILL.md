@@ -26,9 +26,21 @@ holes** (ID 310 is actually absent). The fix is to stop judging and start
 **executing**: the requirement is a set, the context is a set, the gap is a set
 difference — and a set difference cannot miss an interior element.
 
-## The rule
+## The rule (two deterministic moves)
 
-> **Completeness is computation, not judgment. Compute it; do not estimate it.**
+> **Completeness is computation, not judgment. And so is the answer.**
+> Compute both; estimate neither.
+
+There are two places to move work off your probabilistic substrate and onto the CPU:
+
+1. **The gate** — *is the context complete?* A set difference, not a vibe.
+2. **The compute** — *what's the answer?* If the work is deterministic (a sum, a
+   join, a count), run it in code. Measured: on multi-cell financial sums, strong
+   models scored **3–6/80 correct** (one model 0/40) — they cannot reliably add ~15
+   formatted numbers. The same computation in code is exact and free.
+
+The gate stops you answering over incomplete data; the compute stops you fumbling the
+arithmetic over complete data. You need both.
 
 Do NOT decide "does this look complete?" in your head. Instead:
 
@@ -81,35 +93,36 @@ import re
 
 context = """<<paste or reference the retrieved/provided context here>>"""
 
-required = set(range(200, 251))                          # from Step 1
-present  = set(int(m) for m in re.findall(r"ID_(\d+)", context))  # parse, don't guess
-gap      = sorted(required - present)                    # set difference
+# extract what's actually present (adapt the pattern to your data)
+present_A = set(int(m) for m in re.findall(r"loja_A.*?ID_(\d+)", context, re.S))
+present_B = set(int(m) for m in re.findall(r"loja_B.*?ID_(\d+)", context, re.S))
 
-print(f"GATE: FAIL  missing={gap}" if gap else "GATE: PASS")
+gap_A = sorted(required_A - present_A)
+gap_B = sorted(required_B - present_B)
+
+if gap_A or gap_B:
+    print(f"GATE: FAIL  missing_A={gap_A}  missing_B={gap_B}")
+else:
+    print("GATE: PASS")
 ```
 
-The general shape, whatever the domain — keys can be IDs, field names, dates,
-filenames, anything enumerable:
+The general shape, whatever the domain:
 
 ```python
-present = extract_present_keys(context)     # parse what's actually there
+present = extract_present_keys(context)     # parse, don't guess
 gap = required - present                     # set difference
 print("GATE: FAIL", sorted(gap)) if gap else print("GATE: PASS")
 ```
-
-For multi-source tasks (several files/ranges), run one set difference per source
-and FAIL if any gap is non-empty.
 
 ### Step 3 — Gate on the executed result
 
 - **GATE: FAIL** → Tell the user you cannot answer completely, and report the
   exact missing items from the code output. Example:
-  > I can't compute this reliably — the context is missing IDs 410 and 411. With
-  > those I can finish; right now any total would be wrong.
+  > I can't compute this reliably — the context is missing store B IDs 410 and
+  > 411. With those I can finish; right now any total would be wrong.
 
   Never fill the hole. "Assume 0", "interpolate", "use the average" all silently
-  corrupt the answer. If a source is available (a file, a query), recover the
-  missing item by reading it — never by estimating.
+  corrupt the answer.
 
 - **GATE: PASS** → Proceed. If the remaining work is deterministic (summing,
   joining, counting), do THAT in code too — same principle: don't compute in your
@@ -117,23 +130,63 @@ and FAIL if any gap is non-empty.
 
 ```python
 # gate passed: compute the actual answer by execution
-values = {int(i): int(v) for i, v in re.findall(r"ID_(\d+):\D*(\d+)", context)}
-total = sum(v * 0.08 for k, v in values.items() if k in required)
+vals_A = {i: v for i, v in parsed_A.items() if i in required_A}
+vals_B = {i: v for i, v in parsed_B.items() if i in required_B}
+total = sum(v * rates["A"] for v in vals_A.values()) \
+      + sum(v * rates["B"] for v in vals_B.values())
 print(f"FINAL: {total}")
 ```
 
 ## When to use vs skip
 
-**Use it when:**
-- The context comes from retrieval (RAG / top-k), a truncated dump, a partial
-  export, or any source that might not be complete.
+**Use it when** (the regime where it measurably pays — confident confabulation is real here):
+- The task **aggregates or computes** over the context — a sum, a join, a count, a
+  reconciliation, a multi-source total. (Measured: in this regime a strong model
+  confabulated a wrong total **35%** of the time when a slice was silently missing.)
+- The context comes from retrieval (RAG / top-k), a truncated dump, a partial export.
 - The task needs *all* of a known set (every region, every invoice, an ID range).
 - A confidently wrong answer is worse than an honest "insufficient data".
 
-**Skip it when:**
+**Skip it when** (measured: the gate adds little — the model already self-abstains):
+- **Single-fact lookup** ("what is X?") with a clear way to say "not found". Models
+  abstain correctly here on their own (measured ~0% confabulation); a gate is latency
+  for no gain.
 - The full source is obviously, completely present and small.
-- The task is open-ended generation with no completeness requirement.
-- There is no well-defined "required set" to diff against.
+- Open-ended generation, or relevance/meaning judgments with no enumerable required set.
+- The required set can only be known by *understanding* the data (not derived from the
+  task) — there's no deterministic anchor to diff against.
+
+## Variant — predicate coverage ("sum everything above X")
+
+Sometimes the required set is not knowable up front ("total of all transactions over
+$10,000"). You can't enumerate it, so you can't diff it directly. Completeness becomes a
+**coverage** question, and it is only provable under a **deletion-proof invariant**:
+
+- ✅ you have a trusted **full count** of qualifying records and your rows match it, **or**
+- ✅ the records carry **contiguous IDs** with no gap.
+- ❌ "the list is sorted and I saw a value below the threshold" is **NOT** enough — a
+  record deleted from the *middle* leaves the list sorted and the boundary still crossed.
+
+If neither deletion-proof condition holds (e.g. you only received one page of a paginated
+result), **abstain** — you cannot prove you have the whole qualifying set. Don't sum a page
+and call it the total.
+
+## Optional accelerator — the `beliefgate` library
+
+If the project has `beliefgate` installed, use its tested primitives instead of
+hand-rolling (same guarantee, less code):
+
+```python
+from beliefgate import check_set, verify_fresh, remember
+res = check_set(required={"Q1","Q2","Q3"}, present=quarters_in_data)
+if not res.ok:
+    abstain(res.missing)            # exact gap
+```
+
+It also covers predicate coverage (`verify_coverage`) and cached-value coherence
+(`remember` / `verify_fresh` — re-check a derived value's source hasn't changed). If it
+is **not** installed, the inline set-difference above **is** the gate — nothing else
+needed. The technique is the point; the library is just a packaged, tested version of it.
 
 ## Why this works (one line)
 

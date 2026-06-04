@@ -705,7 +705,8 @@ judge, and CoT self-critique), on real text and real financial tables.
 | :--- | :--- | :--- |
 | Multi-needle (NIAH) | 3430 lines of real paper text, 8 named needles | **Accuracy ties.** Obvious gaps; the LLM-judge already counts them. The gate's edge is property (constant cost, proof), not score. |
 | FinQA (gold support) | real 10-K tables, drop a gold supporting cell | **Does not apply.** Required set is annotation-derived; the key vanishes with the dropped item. Open-QA regime. |
-| Keyed aggregation | real FinQA tables, sum question-named columns, drop one | **Mid-pack** (false-suff 2/40 vs judge 1, cot 2, naive 3). Cheapest by 2×. Both error types were *extractor* failures. |
+| Keyed aggregation (LLM extractor) | real FinQA tables, sum question-named columns, drop one | **Mid-pack** (false-suff 2/40 vs judge 1, cot 2, naive 3). Cheapest by 2×. Both error types were *extractor* failures. |
+| Keyed aggregation (**deterministic** extractor) | same, but `present` parsed from the rendered header — no LLM in the decision | **Clean 0/40 + 0/40 at 0 tokens** (see §11.2a). Ties the best LLM arm on accuracy, wins decisively on cost + guarantee. |
 
 ### 11.2 The boundary the three benchmarks measured (not asserted)
 
@@ -732,12 +733,169 @@ real benchmarks bounded that regime by honest elimination, and turned the lib
 README's central claim ("enumerable, task-derived requirement; structured present")
 into a measured rule rather than an assertion.
 
+### 11.2a The pre-registered prediction, tested
+
+§11.2 made a falsifiable claim: *the keyed-aggregation tie was the LLM extractor, not
+the gate.* If true, replacing the LLM that lists headers with a **deterministic parse**
+of the rendered header row (exact match of the task's named columns) should erase both
+error types. We pre-registered this (predictions + falsifiers, in `IDEAS.md`) before
+running, then ran both arms side by side on the same 40 real tables.
+
+| method | false-suff (insufficient) | over-abstain (complete) | ~tokens |
+| :--- | :--- | :--- | :--- |
+| rag_naive | 0/40 | 0/40 | 55,712 |
+| llm_judge | 0/40 | **6/40** | 46,004 |
+| llm_cot | 1/40 | 1/40 | 70,171 |
+| belief_gate (LLM extractor) | 0/40 | **7/40** | 28,249 |
+| **belief_gate_det** (deterministic) | **0/40** | **0/40** | **0** |
+
+What this confirms — and what it doesn't:
+
+- **Prediction held in spirit.** With `present` parsed deterministically, the gate
+  posts a clean 0 dangerous + 0 over-abstain at **zero model cost**. The 7 over-abstains
+  of the LLM-extractor arm vanished — proving they were the *extractor*, not the gate.
+- **Honest caveat on "win."** `rag_naive` also scored 0/0 on this subset (the
+  named-column drop was salient enough for a careful computing model to refuse). So the
+  deterministic gate **ties the best baseline on accuracy** and wins on the other two
+  axes: **cost** (0 vs 55,712 tokens) and **guarantee** (its 0 is structural and
+  leak-proof by construction; naive's 0 is empirical luck on this draw — the same naive
+  arm scored 3 false-suff on the earlier subset). This matches the NIAH lesson: the
+  gate's edge is *property*, not *score*.
+- **One falsifier fired, then was diagnosed.** Prediction "false-suff → 0" failed on
+  first contact (2/40), both on a table with **duplicate column headers** — two columns
+  literally named `december 31 2014 unfunded`. Dropping one left the other, so the
+  required *name* was genuinely still present and the gate said COMPLETE *correctly*;
+  the test oracle was mislabeled. Fix (post-hoc, exploratory): require uniquely-named
+  columns — a name-key proves absence only if it uniquely identifies the column, the
+  deletion-proof principle one level up. After the fix: 0/40. Reported as "0/0 after
+  fixing a duplicate-header oracle bug," not "0/0 as predicted."
+
+### 11.2b Multi-model power: the single-model tie does not survive a second model
+
+The single-model run left an honest caveat: `rag_naive` also scored 0/0, so the
+deterministic gate only *tied* on accuracy. Running a second model (and a deepseek
+test-retest) dissolves that caveat. Pooled over **two models × 120 decisions per
+condition** (deepseek-v4-flash ×2 draws + gemini-2.5-flash; clean post-fix files only):
+
+| method | FALSE-SUFF (dangerous) | over-abstain | ~tokens |
+| :--- | :--- | :--- | :--- |
+| rag_naive | **16/120** | 1/120 | 85,348 |
+| llm_judge | 2/120 | **30/120** | 58,471 (+22 unparseable) |
+| llm_cot | 3/120 | 1/120 | 111,927 (+22 unparseable) |
+| belief_gate (LLM extractor) | 0/120 | **39/120** | 40,247 |
+| **belief_gate_det** | **0/120** | **0/120** | **0** |
+
+Per-model, the failures are severe and *move around*:
+
+- **gemini-2.5-flash, `rag_naive`: 14/40 (35%) false-sufficient.** Asked to just compute
+  the sum, a strong model confidently confabulates a total for a table missing a required
+  column more than a third of the time. This is the exact confident-confabulation failure
+  the whole project targets — and it is *worse* on the stronger model, not better.
+- **gemini, `belief_gate` (LLM extractor): 28/40 (70%) over-abstain.** The header-listing
+  extractor collapses on gemini — re-confirming §11.2 (the extractor is the floor) and
+  showing that floor is model-dependent and can be very low.
+- **gemini, `llm_judge`/`llm_cot`: 22/40 outputs unparseable** by the SUFFICIENT/
+  INSUFFICIENT regex. The LLM arms are fragile to output *format* across models; their
+  gemini rates are computed on < half the cases and are not trustworthy. The deterministic
+  arm has no parsing surface to break.
+- **deepseek test-retest (same seed, same 40 cases, temp 0):** `llm_judge` over-abstain
+  swung 6 → 22 between two runs; `rag_naive` false-suff 0 → 2. Even fixing model and
+  cases, the LLM arms are not reproducible run-to-run. The deterministic arm is
+  bit-identical every time.
+
+**The corrected headline.** `belief_gate_det` is the *only* method that is simultaneously
+(a) zero dangerous errors, (b) zero false alarms, (c) zero token cost, and (d)
+bit-reproducible — and it holds all four on **both** models. Every LLM arm fails at least
+one of these on at least one model, and *which* one it fails is not predictable in
+advance. On gemini specifically there is **no** clean LLM baseline (naive 14 FS, judge
+unreliable, cot unreliable, LLM-gate 70% over-abstain), so the deterministic gate is not
+tying a baseline — it is the only method left standing. The single-model "tie" was an
+artifact of one lucky model; cross-model, the property-based guarantee is the whole point.
+
+> Data-hygiene note: the pooled table uses only the three post-unique-header-fix files
+> that contain the `belief_gate_det` arm. An earlier pre-fix run (no det arm) was
+> excluded; `aggregate_keyed.py` now warns when mixing files with different method sets
+> would make denominators disagree.
+
+### 11.2c Where the open-QA grounding guardrail did NOT earn its keep (negative result)
+
+We also tested the *other* role of the gate — a post-answer **grounding guardrail** for
+open QA, where the answer is not a computation (`bench/openqa/harness_claimgate.py`). The
+LLM answers an extractive cell-lookup question; a deterministic check verifies the
+answered value is present in the source; we compare it to the LLM judging its own
+grounding. Unanswerable cases are induced by blanking the target cell while keeping its
+row label and column header (so absence is non-obvious).
+
+The finding is negative and worth stating plainly: **modern models do not confabulate on
+single-fact extractive lookup when an abstention path is offered.** Across deepseek-v4-flash
+and gemini-3.1-flash-lite (n=40 each, cellblank), real-value confabulation was **0** — both
+abstained correctly when the cell was blank; gemini-3.1-flash-lite was perfect (40/40
+answerable, 40/40 abstain). The guardrails had nothing to catch except 2 malformed/empty
+outputs, where the deterministic check still beat the LLM autorater (2/2 vs 1/2).
+
+The contrast with §11.2b is the real lesson — **confabulation is regime-dependent:**
+
+| Regime | Framing | Confabulation |
+| :--- | :--- | :--- |
+| Keyed aggregation (§11.2b) | "compute the sum", column silently dropped, abstention not emphasized | gemini-2.5 **35%** |
+| Extractive lookup (§11.2c) | "what is cell X? reply NOT FOUND if absent", local blank signal | **0%** |
+
+So the confident-confabulation failure the gate defends against lives in the
+**compute / multi-fact** regime (where you verify completeness *before* computing — the
+gate's home turf), *not* in clean single-fact lookup, where the model self-abstains. A
+post-answer grounding checker is a solution looking for a problem there. The one untested
+avenue where it might still matter is long-form, multi-claim answers — not measured here.
+
 ### 11.3 The load-bearing rule for users
 
 > Feed `present` from a parser / DB / API, not from an LLM reading prose. Derive
 > `required` from the task, not from the data. Inside that envelope the guarantee is
 > absolute (never false-completes); outside it, the gate degrades to whatever
 > produced its inputs.
+>
+> And: reach for the gate in the **compute/aggregate/multi-fact** regime, where models
+> confabulate confidently — not for single-fact extractive lookup, where they already
+> abstain well on their own.
+
+---
+
+## 11.4 The end-to-end payoff: LLM → gate → REPL → answer (the double dissociation)
+
+Everything above measured the gate's *decision*. The final experiment measures the full
+system producing the *answer*, and decomposes where each piece pays
+(`bench/realqa/harness_pipeline.py`). Task: "sum all numeric values in columns X, Y, Z" over
+real FinQA tables (compute regime). COMPLETE = full table (a correct answer exists);
+INSUFFICIENT = a required column removed (correct behavior = abstain). Three arms isolate the
+contributions: `llm_direct` (no gate, no REPL), `gate+llm_compute` (gate gates, LLM computes),
+`gate+repl` (gate gates, REPL computes). Pooled over deepseek-v4-flash + gemini-2.5-flash, 80 each:
+
+| arm | COMPLETE correct | wrong# | over-abstain | INSUFF abstain | INSUFF confab |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| llm_direct | 3/80 | 53 | 24 | 77/80 | 3 |
+| gate + llm_compute | 6/80 | 73 | 0 | 80/80 | 0 |
+| **gate + repl** | **80/80** | 0 | 0 | **80/80** | 0 |
+
+The arithmetic axis is devastating for the LLM: **gemini-2.5 scored 0/40** on COMPLETE (every
+sum wrong — gold 3,151,435 → "2,600,000"); deepseek 3–6/40. LLMs cannot reliably sum ~15–20
+formatted financial cells. The REPL does it perfectly, free.
+
+The **double dissociation**, in one table:
+- the **gate** alone removes the dangerous INSUFFICIENT-confabulation (→0) but not the
+  COMPLETE-arithmetic error (still 6/80 — the LLM still computes);
+- the **REPL** on top fixes the arithmetic (→80/80) and inherits the gate's abstention;
+- **only the full LLM→gate→REPL is correct-or-abstains on both axes.**
+
+This is the project's origin dissociation (CoT fixes arithmetic; belief-reconstruction fixes
+calibration) in its *deterministic* form — and the deterministic versions dominate the LLM
+versions. So gate + REPL is not just a verifier: for a **computable** question it is a QA
+*system* that answers exactly or abstains, never a confident wrong total.
+
+Honest scope (pre-registered): gate+repl's 80/80 on COMPLETE is correct-by-construction (it
+computes the same gold); the non-trivial finding is that the LLM arms sit at 3–6/80 — the LLM
+is the wrong tool for exact arithmetic. The task is arithmetic-heavy on purpose (the compute
+regime); for single-fact lookup the LLM is fine and the pipeline adds little (§11.2c). The
+translation step (question → required set) was trivialized on purpose to isolate compute+gate
+from the extractor-is-the-floor problem (§11.2).
 
 ---
 

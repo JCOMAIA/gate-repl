@@ -277,6 +277,49 @@ presence get a CPU verifier; modality gets a slot but no verifier. The arrow is
 present in all three layers; its *teeth* (deterministic verification) are present in
 two.
 
+> **Status update — the hard arrow is now built and tested** (`beliefgate.memory`).
+> The bookkeeping arrow predicted in the table above is no longer theoretical:
+> `remember(value, source)` binds a derived value to a deterministic **fingerprint**
+> of its source (count + key set + per-key value hashes); `verify_fresh(memo, source)`
+> recomputes it and returns COMPLETE only when the source is byte-for-byte coherent,
+> INCOMPLETE (naming the exact added/removed/changed keys) when it moved, and
+> **UNDECIDABLE when no source is supplied** — the soft-arrow case made operational:
+> with no verifier available it refuses to certify freshness rather than guessing.
+> The leak-proof property holds across time: a 300-edit randomized test and a
+> 2000-trial demo (`bench/memory/demo_coherence.py`) show a naive cache serving stale
+> values ~60% of the time while the bookkeeping reader serves **0** — it proves
+> freshness or re-derives, never serves a value whose source changed. So layers
+> [1]+[2]+[3]-bookkeeping now all carry a CPU-verified arrow in code; only modality
+> remains a verifier-less structured slot, exactly as the table predicts.
+
+> **Status update — span-anchored modality tested, and WHY it stays soft is now precise**
+> (`bench/modality/harness_span.py`). The InsightMemoria reviewer proposed giving the
+> modality tag the gate's teeth by anchoring each tag to the source SPAN that licenses it,
+> then verifying the span "the same way set-diff checks presence." We built it (LLM returns
+> `MODALITY:` + `SPAN:`; a deterministic frozen-lexicon checker returns the gate trichotomy
+> SUPPORTED / CONTRADICTED / UNVERIFIABLE / SPAN_ABSENT) and ran it across **3 models, 90
+> items** (deepseek-v4-flash, gemini-2.5-flash, qwen3-235b). Result splits cleanly in two:
+> - **Localization works (cross-model).** Span fidelity 89/90 (99%) — the model never
+>   fabricated a citation and the cited phrases are spot-on ("A gente já bateu o martelo",
+>   "ainda está na mesa", "a suspeita é que"). The reviewer's "model points at the licensing
+>   phrase" half holds in every model.
+> - **Closed-set verification does not (cross-model).** 75/90 (83%) came back UNVERIFIABLE;
+>   pooled lexicon coverage was decision 7/30, option 6/30, **hypothesis 1/30**, and
+>   CONTRADICTED fired 0 times in 90. We did NOT tune the lexicon (that was the §5c
+>   circularity). 0 upward-inversions in 90 items — models are well-calibrated at tagging,
+>   so the deterministic teeth never even had a dangerous case to catch.
+>
+> The reason is the fundamental disanalogy, now measured: **presence keys are enumerable
+> from the task; modal cues are an OPEN class.** set-diff certifies presence because you can
+> list the required keys; you cannot list a priori every way to say "decided" ("fechamos",
+> "batemos o martelo", "tá fechado", "acertado"…). So the span gives **provenance**, but the
+> cue→class step cannot be a closed-set membership test. Net: span-anchoring upgrades
+> modality from a bare slot to **human/strong-model-auditable provenance** (the span IS the
+> evidence) — not to CPU-deterministic verification. Stronger than the slot, weaker than the
+> gate. The arrow's *teeth* are graded: CPU-hard for presence/coverage/coherence (closed,
+> enumerable), provenance-only for modality (open-class). That gradation is the corrected,
+> measured form of the table above.
+
 ### The two-axis frame (worth importing)
 
 The full writeup's central frame is also worth adopting: memory varies on two

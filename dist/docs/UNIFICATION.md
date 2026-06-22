@@ -72,7 +72,7 @@ The empirical punchline that links them: **the three real benchmarks where the
 belief-gate only tied or placed mid-pack did not fail at layer [2].** They failed at
 layer [1] — the LLM-regex extractor produced an empty or mismatched `present` set
 (long near-identical financial headers; an unparsed list). The belief-gate core was
-flawless throughout (15/15 unit tests, leak-proof). **Layer [1] is the measured
+flawless throughout (29/29 unit tests, leak-proof). **Layer [1] is the measured
 bottleneck, and deterministic extraction is exactly its fix.** Layer [3] is the
 layer we have not built at all.
 
@@ -349,7 +349,7 @@ Concrete, in priority order by risk-adjusted value:
 
 ### Layer [2] — verification (done; the stable center)
 - belief-gate as it stands: `check_set`, `verify_coverage`, the repair loop, the
-  three-verdict modality. 15/15 tests, leak-proof, cross-model 0/15. Nothing to add
+  three-verdict modality. 29/29 tests, leak-proof, cross-model 0/15. Nothing to add
   for the core; it is the fixed point the other layers attach to.
 
 ### Layer [3] — coherent memory (different problem; §5 refuted, see §5c)

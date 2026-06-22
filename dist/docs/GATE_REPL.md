@@ -708,9 +708,19 @@ judge, and CoT self-critique), on real text and real financial tables.
 | Keyed aggregation (LLM extractor) | real FinQA tables, sum question-named columns, drop one | **Mid-pack** (false-suff 2/40 vs judge 1, cot 2, naive 3). Cheapest by 2×. Both error types were *extractor* failures. |
 | Keyed aggregation (**deterministic** extractor) | same, but `present` parsed from the rendered header — no LLM in the decision | **Clean 0/40 + 0/40 at 0 tokens** (see §11.2a). Ties the best LLM arm on accuracy, wins decisively on cost + guarantee. |
 
+> **Update — the real-FinQA-QA regime (path C, [FINQA.md](FINQA.md)).** A later study built a
+> gate for the *actual* FinQA questions (not keyed aggregation) — an operand-grounding gate over
+> model-emitted programs — and measured it across 5 models. There the gate does **not** beat a
+> calibrated `direct` baseline on confabulation: on real QA the failure is *misselection* (a
+> present-but-wrong number), which operand-grounding cannot catch. The honest claim shrinks to
+> *execution buys accuracy; the gate makes execution safe* — not *the gate makes a model more
+> honest than asking it directly*. The keyed-aggregation results in this section remain valid for
+> their regime (enumerable, task-derived required set); do **not** generalize the 80/20 / 0-cost
+> wins below to open numeric QA.
+
 ### 11.2 The boundary the three benchmarks measured (not asserted)
 
-The lib's core (set difference, coverage verification) is flawless — 15/15 unit
+The lib's core (set difference, coverage verification) is flawless — 29/29 unit
 tests, leak-proof. The weak point in real data is the **extractor that produces the
 `present` set**. When that extractor is an LLM transcribing strings from messy
 text/tables, you reintroduce the judgment the gate exists to remove, *at the edge* —

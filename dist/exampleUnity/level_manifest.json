@@ -1,0 +1,29 @@
+{
+  "level_id": "L1_tutorial",
+  "_comment": "The deterministic contract. The agent BUILDS to satisfy this; the gate VERIFIES the scene against it. Specificity = gate strength: an item with only a type is checked for presence; an item with pos is checked for placement; relations (opens_with) and invariants are checked for playability.",
+  "rules": {
+    "max_jump_dx": 6,
+    "max_jump_dy": 4,
+    "pos_tolerance": 0.75
+  },
+  "required": [
+    { "id": "spawn",     "type": "PlayerSpawn", "pos": [2, 2] },
+    { "id": "exit",      "type": "LevelExit",   "pos": [38, 12] },
+    { "id": "plat_a",    "type": "Platform",    "pos": [7, 4] },
+    { "id": "plat_b",    "type": "Platform",    "pos": [12, 6] },
+    { "id": "plat_c",    "type": "Platform",    "pos": [18, 5] },
+    { "id": "plat_d",    "type": "Platform",    "pos": [24, 8] },
+    { "id": "plat_e",    "type": "Platform",    "pos": [30, 10] },
+    { "id": "plat_f",    "type": "Platform",    "pos": [35, 11] },
+    { "id": "coin_1",    "type": "Coin",        "pos": [12, 7],  "stands_on": "plat_b" },
+    { "id": "coin_2",    "type": "Coin",        "pos": [24, 9],  "stands_on": "plat_d" },
+    { "id": "key_red",   "type": "Key",   "pos": [30, 11], "stands_on": "plat_e", "props": { "color": "red" } },
+    { "id": "door_red",  "type": "Door",  "pos": [37, 12], "props": { "color": "red", "opens_with": "key_red" } }
+  ],
+  "invariants": [
+    "spawn_reaches_exit",
+    "all_collectibles_reachable",
+    "every_door_has_reachable_key",
+    "no_unreferenced_required"
+  ]
+}

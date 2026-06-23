@@ -1,0 +1,66 @@
+{
+  "manifest_version": "1.1",
+  "_design_notes": "Two corrections over a naive manifest: (1) invariants are split into STRUCTURAL (deterministic facts the gate GUARANTEES) and HEURISTIC (estimates the gate computes deterministically but which only MODEL fun/balance — not guarantees). (2) The parkour graph is DERIVED from queried node positions + player_capabilities, NOT trusted from agent-declared edges. The agent could 'satisfy' a declared edge by lying; a geometric edge can't be faked.",
+
+  "project": {
+    "name": "Tag Arena", "engine": "Unity 6",
+    "networking": "Mirror", "controller": "KinematicCharacterController", "input": "StarterAssets"
+  },
+
+  "player_capabilities": {
+    "walk_speed": 7.0, "sprint_speed": 11.0,
+    "jump_height": 2.2, "double_jump": false,
+    "max_jump_dx": 8.0, "max_jump_dy": 2.5,
+    "crouch": true, "slide": true, "vault": true, "mantle": true, "wallrun": true,
+    "wallrun_extra_dx": 4.0, "vault_extra_dx": 2.0
+  },
+
+  "rules": {
+    "position_tolerance": 1.0,
+    "minimum_spawn_distance": 15.0,
+    "minimum_escape_routes": 3,
+    "minimum_vaults": 2,
+    "minimum_wallruns": 1,
+    "maximum_estimated_tag_time": 90,
+    "minimum_estimated_tag_time": 20,
+    "minimum_verticality_levels": 3
+  },
+
+  "required": [
+    { "id": "spawn_runner",    "type": "RunnerSpawn",         "pos": [15, 0, 15] },
+    { "id": "spawn_chaser",    "type": "ChaserSpawn",         "pos": [28, 1, 28] },
+    { "id": "arena_bounds",    "type": "ArenaBounds" },
+    { "id": "network_manager", "type": "MirrorNetworkManager" },
+    { "id": "player_prefab",   "type": "NetworkPlayer" },
+    { "id": "ground",          "type": "Platform", "pos": [20, 0, 20] },
+    { "id": "main_roof",       "type": "Platform", "pos": [15, 2, 21] },
+    { "id": "secondary_roof",  "type": "Platform", "pos": [21, 2, 15] },
+    { "id": "high_roof",       "type": "Platform", "pos": [15, 4, 27] },
+    { "id": "vault_01",        "type": "VaultObstacle",  "pos": [10, 0, 15] },
+    { "id": "vault_02",        "type": "VaultObstacle",  "pos": [24, 0, 24] },
+    { "id": "wallrun_01",      "type": "WallRunSurface", "pos": [27, 4, 21] }
+  ],
+
+  "invariants_structural": [
+    "required_objects_present",
+    "no_duplicate_ids",
+    "mirror_network_manager_present",
+    "player_prefab_registered",
+    "spawn_runner_exists",
+    "spawn_chaser_exists",
+    "spawn_distance_valid",
+    "minimum_vaults_present",
+    "minimum_wallruns_present",
+    "all_platforms_connected",
+    "no_isolated_platforms",
+    "runner_has_minimum_escape_routes",
+    "chaser_can_reach_any_node",
+    "all_traversal_nodes_reachable_by_runner"
+  ],
+
+  "invariants_heuristic": [
+    "estimated_tag_time_between_limits",
+    "minimum_verticality_levels",
+    "minimum_parkour_density"
+  ]
+}

@@ -129,6 +129,43 @@ has no model that both exhibits the phenomenon and exposes activations cheaply. 
 (`expr & cot` → 0 FA) shows the wall *is* breakable — but only with the expensive estimator,
 which defeats the point of a cheap sensor.
 
+## 9. Related work — anchoring these (small-n) findings in two large studies
+
+Our measurements here are small-n (dose-response n=24/9; FinQA n=60–150). Two independent,
+large studies from 2026 anchor them — one architectural, one empirical — and clarify exactly
+what is and isn't ours.
+
+**O'Neill (2026), "Grounded Inference: Principles for Deterministically Encapsulated Generative
+Models"** *(arXiv:2606.19753)* — the **architectural** anchor. It states, from first principles,
+the same design we measure: encapsulate the probabilistic engine; validate its output by
+*execution*, not trust; have the model *write the parser* rather than process the data
+("Entropy Minimization"); and reject intrinsic self-correction (citing Huang et al., the same
+anchor we reached independently). Its Adaptive Resolution Agent is gate-REPL as an architecture.
+What it asserts, we measure (LLM-judge false-passes 7/15 → executed 0/15; the double
+dissociation). What it treats as given — *where the execution anchor stops helping* — is our
+added boundary: it catches fabrication, not misselection (§6), and there is no cheap detector
+past that (§8).
+
+**Norman, Rivera & Hughes (2026), "Reliability without Validity: ... LLM-as-a-Judge ..."**
+*(arXiv:2606.19544)* — the **empirical** anchor, at scale: 21 judges, 3 benchmarks, ~541,000
+judgments. Their headline **consistency–bias paradox** — a judge with test–retest > 0.95 can
+carry position bias > 0.10 (deterministically reproducible, yet systematically wrong) — is our
+correlated-confident wall, measured at 541k. Mechanistically it is a *special case* of the
+decorrelation principle here: **test–retest is a maximally *correlated* check (the judge against
+itself), so it measures stability, not correctness; only a *decorrelated* check validates.**
+Their result independently corroborates the one finding of ours that was weakest on sample size
+(re-sampling/reproducibility cannot catch a systematic error).
+
+**What is, and isn't, ours (honesty).** The core "reliable ≠ valid" distinction is neither
+O'Neill's nor ours nor Norman's — it is classic psychometrics (Cohen, 1960; it is literally
+Norman's title). Norman's contribution is measuring it on modern LLM judges at scale; O'Neill's
+is the encapsulation architecture. **Ours is the part in between:** the *decorrelated-residual*
+mechanism that unifies in-run verification methods on one axis (self-consistency → paraphrase →
+execution) and explains *why* the wall is where it is, plus a deterministic artifact
+(belief-gate) for the slice that is checkable. We diagnose less broadly than Norman and assert
+less than O'Neill — but we connect the two: the mechanism behind their paradox, and the cure for
+the slice their wall doesn't have to cover.
+
 ---
 
 *One line. A cheap in-run detector is a decorrelated residual; it works to the degree the

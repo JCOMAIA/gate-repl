@@ -88,3 +88,7 @@ parser/DB/API, not from a model reading text (`docs/GATE_REPL.md` §11.3).
   predicate gate in `docs/GATE_REPL.md` §10), difficulty budget (count of hazards in range).
 - The same loop shape works for any agent-built artifact with an enumerable contract — not
   only Unity scenes.
+
+
+## Claude code running the Belief Gate <img width="606" height="62" alt="image" src="https://github.com/user-attachments/assets/676c93b3-9fb0-412b-b0d4-8ee34e4e35f3" />
+

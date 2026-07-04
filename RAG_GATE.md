@@ -3,8 +3,9 @@
 *A measured report. Belief-gate is not a retrieval method and does not compete with
 one. It is a **completeness control layer** that wraps any retriever. This report
 shows — on a deterministic, reproducible test with a real text corpus and no API —
-the three specific ways that layer improves a RAG pipeline, and states precisely
-where the improvement stops.*
+the three specific ways that layer improves a RAG pipeline, states precisely where
+the improvement stops, and gives a 4-question checklist for whether YOUR RAG needs
+it (most don't).*
 
 ---
 
@@ -21,8 +22,8 @@ measurable claims and one hard boundary:
 3. **It does so cost-aware** — it escalates retrieval *only* on the queries that need
    it, not on every query.
 4. **Boundary:** it is a *control layer*, not a retriever. With no RAG under it, it
-   answers nothing, and its accuracy ceiling equals the retriever's recall ceiling.
-   It controls RAG; it is not RAG, and it does not replace RAG.
+   answers nothing, and it cannot raise the retriever's recall ceiling — it can only
+   make the retriever *reach* that ceiling and tell the truth about the rest.
 
 Everything below is the evidence for those four statements.
 
@@ -46,7 +47,7 @@ and the pipeline either re-retrieves to close it or abstains with the missing li
 
 This only applies where the requirement is an **enumerable set** (a list of invoice
 IDs, a set of months, N named entities). That is the regime this report measures; it
-is not a claim about open-ended QA.
+is not a claim about open-ended QA. See §6 for the checklist that decides fit.
 
 ---
 
@@ -109,7 +110,7 @@ Every `RAG_gate` row has **FALSE_COMPLETE = 0**. The gate converts each of those
 confident-wrong answers into either a correct answer (when re-retrieval finds the
 fact) or an honest abstention with the exact missing list (when the fact is truly
 absent). **This is the primary, unconditional win: the pipeline stops lying about
-completeness.** It is also the one improvement that a stronger retriever cannot buy —
+completeness.** It is also the one improvement a stronger retriever cannot buy —
 `brute`'s perfect recall does not remove a single false-complete; the gate removes
 all of them.
 
@@ -145,11 +146,27 @@ The same table refutes the stronger claim that the gate is "superior to RAG" or 
   `present` set is always empty, so every requirement is "incomplete" and it answers
   nothing. The gate produces zero information on its own — it is entirely parasitic on
   a retriever for the content it verifies.
-- **The accuracy ceiling is the retriever's recall ceiling.** No gated row ever
-  exceeds **28 correct** — exactly the number of recoverable queries. The gate never
-  manufactures a fact that retrieval cannot find; on the 32 unrecoverable queries it
-  can only abstain. Its contribution there is *honesty* (abstention instead of
-  confabulation), not *answers*.
+- **It cannot raise the recall ceiling — only reach it.** This is the one line most
+  easily misread as a contradiction, so precisely: there are two different "recalls."
+  The **ceiling** is what the retriever *could* find if it pulled the whole corpus —
+  here, the **28** recoverable queries (the other 32 need facts that simply are not in
+  the corpus). The **delivered** recall is what a fixed `top_k` actually returns —
+  `bm25` at top-10 delivers only **2**. The gate does **not** move the ceiling from 28
+  (it cannot invent a document that isn't there). What it does is close the gap between
+  *delivered* (2) and *ceiling* (28), by re-retrieving until the required set is
+  covered — and tell the truth on the 32 that no retriever can reach.
+
+  > Analogy: a student who reads only the first 10 pages and answers everything. The
+  > answer is on page 200 — the library *has* it (high ceiling), but he never turned
+  > there (low delivered). The gate is the teacher who says "you're missing fact X,
+  > keep looking" until he finds it or the library genuinely lacks it. The teacher
+  > adds no books (cannot exceed the ceiling) but forces full use of the library and
+  > an honest "we don't have it" for the rest.
+
+  So "makes RAG better" and "cannot exceed the recall RAG can achieve" are both true
+  and are about different things: the first is *reaching the ceiling and being honest*
+  (`2 correct + 58 lies → 28 correct + 0 lies`); the second is *not moving the ceiling*
+  (never past 28).
 
 So the precise, defensible statement is:
 
@@ -161,7 +178,48 @@ So the precise, defensible statement is:
 
 ---
 
-## 6. Honest bounds (do not over-read this)
+## 6. Should YOU put a gate on your RAG? — the 4-question checklist
+
+**No, not on every RAG.** The gate fits a specific *shape* of problem, and most RAGs
+don't have that shape. Add it **only when all four are true**:
+
+| # | question | why it matters |
+| :-- | :--- | :--- |
+| 1 | **Is the requirement an enumerable set you know in advance?** (a list of IDs, months, entities, checklist items) | If you can't name the keys, `required − present` is undefined. This is the hard gate. |
+| 2 | **Does a silently missing item become a confident, wrong answer?** (failure mode = *fabrication*, not *misselection*) | The gate catches an *absent* required item. It does **not** catch a *present-but-wrong* one. |
+| 3 | **Does a wrong answer cost more than abstaining / re-retrieving?** (money, legal, compliance, safety) | The gate trades some over-abstention for zero confabulation. Worth it only when confabulation is expensive. |
+| 4 | **Is the base reader poorly calibrated to abstain on its own?** | If the model already says "I don't have that", the gate adds latency, not honesty. This is the FinQA deflation (§7). |
+
+Fail any one → **don't add it.** It becomes friction (extra extraction call,
+over-abstention) with no gain.
+
+**Where all four typically hold (real, everyday):**
+
+- **Accounting / finance** — "reconcile all N invoices in this batch"; required = the
+  declared IDs. A missing one silently corrupts the total.
+- **Payroll** — are all employees of the department in the export before totalling?
+- **Fixed-coverage reports** — a close that must cover all 12 months / all regions;
+  the query silently dropped one → sum of 11, reported confidently.
+- **Legal (existence only)** — a filing must address a fixed list of exhibits/claims;
+  did the retrieved context surface all of them? (existence, not merit — the boundary.)
+- **Compliance / audit** — SOC2, ISO, regulatory checklist: does the report cover all
+  K required controls? The requirement *is* the checklist.
+- **BOM / procurement** — do all parts in the bill of materials appear in the quote?
+- **KYC / onboarding** — are all mandatory documents present before approval?
+- **Lab / medical panels** — are all N required results in before interpreting?
+
+**Where it does NOT fit (most RAGs):** open QA ("what does the contract say about
+X?"), summarization, semantic search, chat over documents — no enumerable required
+set; and any case where the danger is a *wrong-but-present* answer (misselection),
+which the gate does not catch.
+
+> One line: it's a seat belt. You don't bolt it onto an office chair — you put it
+> where a collision is expensive. Enumerable requirement + high stakes + a reader that
+> won't abstain on its own → yes, always. Everything else → no.
+
+---
+
+## 7. Honest bounds (do not over-read this)
 
 - **This isolates the *retrieval-completeness* layer, not end-to-end honesty.** The
   test models `RAG_plain` as *always* answering when context is incomplete (no native
@@ -170,11 +228,16 @@ So the precise, defensible statement is:
   *calibrated* direct baseline, the gate did **not** beat the model's native
   calibration on confabulation (see [FINQA.md](FINQA.md)). The false-complete
   reductions here (e.g. 58 → 0) are the **structural upper bound**, larger than what a
-  well-calibrated reader would leave on the table.
+  well-calibrated reader would leave on the table. This is exactly why checklist
+  question #4 exists.
 - **The win is real but scoped to the enumerable-required-set regime.** Where the
   requirement is not an enumerable set (open QA, summarization, free interpretation),
   `required − present` is undefined and this layer does not apply. See
   [SCENARIOS.md](SCENARIOS.md) for the measured boundaries.
+- **The guarantee is conditional on the `present` extraction.** The gate computes on
+  the `present` set it is handed. If that extraction is wrong (the reader mis-reports
+  what it sees), the gate faithfully computes on wrong input. It catches *fabrication*
+  (absent item claimed present), not *misselection* (present item that is wrong).
 - **Retriever quality still matters for cost.** The gate lifts `bm25` to `brute`'s
   *accuracy*, but a better base retriever reaches completeness with less escalation
   (fewer re-retrieval rounds). The gate reduces the *penalty* for a weak retriever; it
@@ -186,11 +249,13 @@ So the precise, defensible statement is:
 
 ---
 
-## 7. One line
+## 8. One line
 
 Belief-gate makes RAG better in three measurable ways — it kills confident-wrong
 answers over missing data, it lifts a weak retriever to a strong retriever's recall by
 re-retrieving until the required set is covered, and it spends that extra retrieval
 only where completeness demands it — while never becoming a retriever itself: with no
 RAG beneath it, it answers nothing, and it can never exceed the recall RAG provides.
-It is the control layer over RAG, not a replacement for it.
+It is the control layer over RAG, not a replacement for it — and it belongs only on
+the RAGs whose requirement is enumerable, whose stakes are high, and whose reader
+won't abstain on its own.

@@ -21,7 +21,7 @@ the REPL fixes arithmetic; only the full pipeline is clean on both.
 
 ## BELIEF-GATE AS CONTROL LAYER FOR RAG: https://github.com/JCOMAIA/gate-repl/blob/main/RAG_GATE.md
 
-## 1. Should YOU put a gate on your RAG? — the 4-question checklist
+## 1. Should YOU put a gate on every  RAG? — the 4-question checklist
 
 **No, not on every RAG.** The gate fits a specific *shape* of problem, and most RAGs
 don't have that shape. Add it **only when all four are true**:
